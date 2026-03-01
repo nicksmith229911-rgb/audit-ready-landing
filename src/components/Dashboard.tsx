@@ -220,8 +220,11 @@ const Dashboard = () => {
           s.id === inserted.id ? { ...s, compliance_score: score, status: "completed" } : s
         )
       );
-      toast[isSafe ? "success" : "warning"](
-        `${file.name} — ${isSafe ? "Compliant" : "Issues Found"}`,
+      const isCompliant = score >= 70;
+      const complianceStatus = isCompliant ? "COMPLIANT" : "NON-COMPLIANT";
+      
+      toast[isCompliant ? "success" : "error"](
+        `${file.name} — ${complianceStatus}`,
         { description: `Score: ${score}/100 · ${findings.length} finding(s)` }
       );
     } catch (err: unknown) {
@@ -295,6 +298,8 @@ const Dashboard = () => {
   );
 
   const completedScans = scans.filter((s) => s.status === "completed");
+  const compliantScans = completedScans.filter((s) => (s.compliance_score ?? 0) >= 70);
+  const nonCompliantScans = completedScans.filter((s) => (s.compliance_score ?? 0) < 70);
   const issueScans = scans.filter((s) => s.status !== "completed" && s.status !== "pending");
 
   return (
@@ -303,7 +308,8 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         {[
           { label: "Files Scanned", value: scans.length, icon: FileCheck },
-          { label: "Compliant", value: completedScans.length, icon: Shield },
+          { label: "Compliant", value: compliantScans.length, icon: Shield },
+          { label: "Non-Compliant", value: nonCompliantScans.length, icon: X },
           { label: "Issues Found", value: issueScans.length, icon: X },
         ].map((stat) => (
           <Card key={stat.label} className="border-border/50 bg-card/80 backdrop-blur">
@@ -423,16 +429,26 @@ const Dashboard = () => {
                     <span
                       className={`flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         scan.status === "completed"
-                          ? "bg-primary/10 text-primary"
+                          ? (scan.compliance_score ?? 0) >= 70
+                            ? "bg-primary/10 text-primary"
+                            : "bg-red-10 text-red-600"
                           : "bg-muted text-muted-foreground"
                       }`}
                     >
                       {scan.status === "completed" ? (
-                        <CheckCircle2 className="h-3 w-3" />
+                        (scan.compliance_score ?? 0) >= 70 ? (
+                          <CheckCircle2 className="h-3 w-3" />
+                        ) : (
+                          <X className="h-3 w-3" />
+                        )
                       ) : (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       )}
-                      {scan.status === "completed" ? "Compliant" : "Pending"}
+                      {scan.status === "completed"
+                        ? (scan.compliance_score ?? 0) >= 70
+                          ? "COMPLIANT"
+                          : "NON-COMPLIANT"
+                        : "Pending"}
                     </span>
 
                     {scan.status === "completed" && (

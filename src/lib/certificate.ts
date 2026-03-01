@@ -11,6 +11,9 @@ export function generateCertificate(data: CertificateData) {
   const doc = new jsPDF();
   const w = doc.internal.pageSize.getWidth();
   const issued = new Date(data.date);
+  const isCompliant = data.score >= 70;
+  const complianceStatus = isCompliant ? "COMPLIANT" : "NON-COMPLIANT";
+  const statusIcon = isCompliant ? "✓ PASS" : "✗ FAIL";
 
   // === Outer border ===
   doc.setDrawColor(16, 185, 129);
@@ -44,12 +47,11 @@ export function generateCertificate(data: CertificateData) {
 
   // === Body ===
   let y = 85;
-
   doc.setFontSize(10);
   doc.setTextColor(80, 80, 80);
   doc.text("This certificate confirms that the following document has been", w / 2, y, { align: "center" });
   y += 7;
-  doc.text("analyzed and found COMPLIANT with applicable AI governance standards.", w / 2, y, { align: "center" });
+  doc.text(`analyzed and found ${complianceStatus} with applicable AI governance standards.`, w / 2, y, { align: "center" });
 
   // === Details box ===
   y += 18;
@@ -73,7 +75,7 @@ export function generateCertificate(data: CertificateData) {
   doc.text("Compliance Score:", labelX, y);
   doc.setTextColor(16, 185, 129);
   doc.setFont(undefined!, "bold");
-  doc.text(`${data.score} / 100  —  COMPLIANT`, valueX, y);
+  doc.text(`${data.score} / 100  — ${complianceStatus}`, valueX, y);
 
   y += 10;
   doc.setFont(undefined!, "normal");
@@ -81,7 +83,7 @@ export function generateCertificate(data: CertificateData) {
   doc.text("Result:", labelX, y);
   doc.setTextColor(16, 185, 129);
   doc.setFont(undefined!, "bold");
-  doc.text("✓  PASS", valueX, y);
+  doc.text(statusIcon, valueX, y);
 
   y += 10;
   doc.setFont(undefined!, "normal");
