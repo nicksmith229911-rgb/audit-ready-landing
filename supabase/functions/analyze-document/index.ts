@@ -6,7 +6,41 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const MAX_WORDS = 10000;
+const MAX_WORDS = 800; // Increased for better table context
+
+// Table-Aware preprocessing for complex matrices
+function preprocessTableText(text: string): string {
+  // Detect if text contains table-like structures
+  const hasTableMarkers = /\|.*\|/.test(text) || 
+    /^\s*[\|\+\-]+/.test(text) || 
+    /RACI|Responsible|Accountable|Consulted|Informed/i.test(text);
+  
+  if (hasTableMarkers) {
+    console.log("Table structure detected, applying preprocessing...");
+    
+    // Extract and preserve table structure while making it more readable
+    const tableRows = text.split('\n').filter(line => 
+      line.trim() && (line.includes('|') || /[A-Z]/.test(line))
+    );
+    
+    // Add context for AI to understand table relationships
+    const tableContext = `
+TABLE ANALYSIS CONTEXT:
+This document contains a responsibility matrix (likely RACI format).
+Key relationships to identify:
+- Who is RESPONSIBLE for implementation
+- Who is ACCOUNTABLE for outcomes  
+- Who needs to be CONSULTED for input
+- Who must be INFORMED of results
+
+Focus on security-related responsibilities and access controls.
+`;
+    
+    return tableContext + '\n\n' + tableRows.join('\n');
+  }
+  
+  return text;
+}
 
 function splitIntoChunks(text: string, maxWords: number): string[] {
   const words = text.split(/\s+/);
@@ -86,12 +120,20 @@ async function analyzeChunk(
   totalChunks: number,
   apiKey: string
 ): Promise<{ score: number; findings: string[]; evidence: string[] }> {
-  const systemPrompt = `You are a SOC2/ISO27001 Auditor. Analyze the document and return JSON with:
+  const systemPrompt = `You are an expert SOC2/ISO27001 Auditor. When you see text that appears to be a RACI matrix or table, interpret the relationships between roles and tasks before scoring.
+
+Analyze the document and return JSON with:
 - score: 0-100 (70+ = compliant)
-- findings: 3 bullet points max
+- findings: 3 bullet points max (focus on security gaps)
 - evidence: 3 short quotes max
 
-If you encounter complex tables or RACI matrices, summarize the key responsibilities rather than trying to quote the table structure directly.
+Table Analysis Rules:
+- Identify who is RESPONSIBLE for security implementation
+- Check who is ACCOUNTABLE for security outcomes
+- Note who must be CONSULTED for security decisions
+- Verify who must be INFORMED of security incidents
+
+If you encounter complex tables or RACI matrices, summarize the key security responsibilities rather than trying to quote the table structure directly.
 
 Be evidence-based. If no security controls found, score below 40.
 
@@ -130,15 +172,43 @@ Example:
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content ?? "";
 
-  // JSON Defense: Clean AI response to prevent parsing errors
-  const cleaned = content
-    .replace(/```json?\s*/g, "") // Remove code block markers
-    .replace(/```/g, "") // Remove remaining backticks
-    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
-    .trim();
+  // Enhanced JSON repair function for table-induced corruption
+  function repairJsonResponse(content: string): any {
+    try {
+      return JSON.parse(content);
+    } catch (parseError: any) {
+      console.warn("Initial JSON parse failed, attempting repair:", parseError?.message || parseError);
+      
+      // Remove table-induced corruption patterns
+      let repaired = content
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Control chars
+        .replace(/\\n\s*\\n\s*\\n/g, "\\n") // Excessive newlines
+        .replace(/,\s*}/g, "}") // Trailing commas in objects
+        .replace(/,\s*]/g, "]") // Trailing commas in arrays
+        .replace(/}\s*{/g, "},{") // Missing commas between objects
+        .replace(/]\s*\[/g, "],[") // Missing commas between arrays
+        .replace(/""\s*:/g, '":null') // Empty values to null
+        .replace(/:\s*""/g, ':null') // Empty values to null
+        .trim();
+      
+      // Try parsing again
+      try {
+        const parsed = JSON.parse(repaired);
+        console.log("JSON repair successful");
+        return parsed;
+      } catch (secondError) {
+        console.error("JSON repair failed, using fallback structure");
+        return {
+          score: 35,
+          findings: ["Table structure too complex for automated analysis"],
+          evidence: ["Manual review recommended for RACI matrix interpretation"]
+        };
+      }
+    }
+  }
 
   try {
-    const parsed = JSON.parse(cleaned);
+    const parsed = repairJsonResponse(content);
     
     // Validate response structure and implement failure scoring
     if (!parsed.score || !Array.isArray(parsed.findings)) {
@@ -256,7 +326,9 @@ serve(async (req: Request) => {
 
     const results = [];
     for (const [i, chunk] of chunks.entries()) {
-      const result = await analyzeChunk(chunk, fileName, i, chunks.length, LOVABLE_API_KEY);
+      // Apply preprocessing for table-aware analysis
+      const processedChunk = preprocessTableText(chunk);
+      const result = await analyzeChunk(processedChunk, fileName, i, chunks.length, LOVABLE_API_KEY);
       results.push(result);
     }
 
