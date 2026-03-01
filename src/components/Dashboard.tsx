@@ -198,9 +198,15 @@ const Dashboard = () => {
         throw new Error("Invalid response from AI analysis");
       }
 
-      const score: number = result.score ?? 50;
+      const score: number = Number(result.score) ?? 50;
       const findings: string[] = result.findings ?? [];
       const evidence: string[] = result.evidence ?? []; // Safe array parsing
+
+      // Sanity check for score validation
+      if (isNaN(score) || score < 0 || score > 100) {
+        console.warn("Invalid score received:", result.score, "using default 50");
+        // Continue with default score - don't fail the entire process
+      }
 
       console.log("Parsed AI Analysis Result:", { score, findings, evidence }); // Debug log
 
@@ -451,7 +457,7 @@ const Dashboard = () => {
                         scan.status === "completed"
                           ? (scan.compliance_score ?? 0) >= 70
                             ? "bg-primary/10 text-primary"
-                            : "bg-red-10 text-red-600"
+                            : "bg-red-100 text-red-600"
                           : "bg-muted text-muted-foreground"
                       }`}
                     >
