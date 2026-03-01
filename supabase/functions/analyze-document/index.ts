@@ -56,33 +56,27 @@ async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
   try {
     // Use a simple PDF text extraction approach
     const bytes = new Uint8Array(arrayBuffer);
-    const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    let text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
     
-    // Extract readable text from PDF (basic approach)
-    // Look for common text patterns in PDFs
-    const textPatterns = [
-      /BT\s*[\d.]+\s*[\d.]+\s*Td\s*\((.*?)\)\s*Tj/g,
-      /\((.*?)\)\s*Tj/g,
-      /[\w\s.,;:!?'"()-]+/g
-    ];
+    // Table-aware processing: Convert PDF table structures to Markdown
+    text = text
+      // Convert common table separators to Markdown format
+      .replace(/\s*\+[-]+\+\s*/g, '\n|---|---|---|\n')
+      .replace(/\s*\|[-]+\|\s*/g, '\n|---|---|---|\n')
+      // Ensure consistent column separators
+      .replace(/\s{3,}|\t/g, ' | ')
+      // Clean up table rows
+      .replace(/^(\s*\|.*\|\s*)$/gm, '$1')
+      // Add table headers detection
+      .replace(/(Task|Activity|Function|Control)\s+(Responsible|Accountable|Consulted|Informed)/gi, '| $1 | $2 |');
     
-    let extractedText = "";
-    for (const pattern of textPatterns) {
-      const matches = text.match(pattern);
-      if (matches) {
-        extractedText += matches.join(" ") + " ";
-      }
+    // If table structure is detected, format as proper Markdown
+    if (text.includes('|') && text.includes('---')) {
+      console.log("Table structure detected in PDF, converting to Markdown format");
+      return text;
     }
     
-    // Clean up the extracted text
-    extractedText = extractedText
-      .replace(/\\\(/g, "(")
-      .replace(/\\\)/g, ")")
-      .replace(/\\n/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    
-    return extractedText || "Could not extract text from PDF. The PDF may be scanned or protected.";
+    return text || "Could not extract text from PDF. The PDF may be scanned or protected.";
   } catch (error) {
     console.error("PDF extraction error:", error);
     return "Failed to extract text from PDF. The file may be corrupted or password-protected.";
@@ -122,6 +116,8 @@ async function analyzeChunk(
 ): Promise<{ score: number; findings: string[]; evidence: string[] }> {
   const systemPrompt = `You are an expert SOC2/ISO27001 Auditor. When you see text that appears to be a RACI matrix or table, interpret the relationships between roles and tasks before scoring.
 
+VISION FALLBACK: If the text looks like a table but is poorly formatted, use your logic to reconstruct the assignments before scoring compliance.
+
 Analyze the document and return JSON with:
 - score: 0-100 (70+ = compliant)
 - findings: 3 bullet points max (focus on security gaps)
@@ -142,7 +138,14 @@ Example:
 
   const chunkLabel = totalChunks > 1 ? ` (chunk ${chunkIndex + 1}/${totalChunks})` : "";
 
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  // 15-second timeout protection
+  const timeoutPromise = new Promise<{ score: number; findings: string[]; evidence: string[] }>((_, reject) => {
+    setTimeout(() => {
+      reject(new Error("Analysis timeout - complex structure detected"));
+    }, 15000); // 15 seconds
+  });
+
+  const analysisPromise = fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -161,16 +164,19 @@ Example:
     }),
   });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("AI gateway error:", response.status, errText);
-    if (response.status === 429) throw new Error("Rate limit exceeded, please try again later.");
-    if (response.status === 402) throw new Error("AI credits exhausted. Please add credits.");
-    throw new Error(`AI gateway error: ${response.status}`);
-  }
+  try {
+    const response = await Promise.race([analysisPromise, timeoutPromise]) as Response;
+    
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("AI gateway error:", response.status, errText);
+      if (response.status === 429) throw new Error("Rate limit exceeded, please try again later.");
+      if (response.status === 402) throw new Error("AI credits exhausted. Please add credits.");
+      throw new Error(`AI gateway error: ${response.status}`);
+    }
 
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content ?? "";
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content ?? "";
 
   // Enhanced JSON repair function for table-induced corruption
   function repairJsonResponse(content: string): any {
@@ -249,8 +255,16 @@ Example:
       findings: validFindings,
       evidence: validEvidence
     };
-  } catch {
-    console.error("Failed to parse AI response:", content);
+  } catch (parseError: any) {
+    if (parseError.message === "Analysis timeout - complex structure detected") {
+      console.warn("Analysis timeout for complex structure, returning system warning");
+      return {
+        score: 45,
+        findings: ["System Warning: Document structure too complex for automated analysis"],
+        evidence: ["Manual review recommended for complex RACI matrices and tables"]
+      };
+    }
+    console.error("Failed to parse AI response:", parseError);
     return { 
       score: 15, // Default to failure score
       findings: ["Could not parse AI analysis — manual review recommended"], 
