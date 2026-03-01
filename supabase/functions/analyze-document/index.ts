@@ -8,7 +8,21 @@ const corsHeaders = {
 
 const MAX_WORDS = 800; // Increased for better table context
 
-// Table-Aware preprocessing for complex matrices
+// Text Sanitizer: Remove watermarks and special character clusters
+function sanitizeText(text: string): string {
+  // Remove specific watermark phrase
+  text = text.replace(/sans institute 2003\. author retains full rights/gi, '');
+  
+  // Remove unusual clusters of special characters from watermark overlaps
+  text = text.replace(/[^\w\s\.\,\;\:\!\?\-\|\n\r]{3,}/g, ''); // Remove 3+ consecutive special chars
+  text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // Remove control chars except tab/newline
+  
+  // Clean up multiple spaces and line breaks
+  text = text.replace(/\s{3,}/g, ' '); // Reduce multiple spaces to single
+  text = text.replace(/\n{3,}/g, '\n\n'); // Reduce multiple newlines to double
+  
+  return text.trim();
+}
 function preprocessTableText(text: string): string {
   // Detect if text contains table-like structures
   const hasTableMarkers = /\|.*\|/.test(text) || 
@@ -73,10 +87,10 @@ async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
     // If table structure is detected, format as proper Markdown
     if (text.includes('|') && text.includes('---')) {
       console.log("Table structure detected in PDF, converting to Markdown format");
-      return text;
+      return sanitizeText(text);
     }
     
-    return text || "Could not extract text from PDF. The PDF may be scanned or protected.";
+    return sanitizeText(text) || "Could not extract text from PDF. The PDF may be scanned or protected.";
   } catch (error) {
     console.error("PDF extraction error:", error);
     return "Failed to extract text from PDF. The file may be corrupted or password-protected.";
@@ -115,6 +129,8 @@ async function analyzeChunk(
   apiKey: string
 ): Promise<{ score: number; findings: string[]; evidence: string[] }> {
   const systemPrompt = `You are an expert SOC2/ISO27001 Auditor. When you see text that appears to be a RACI matrix or table, interpret the relationships between roles and tasks before scoring.
+
+Ignore any recurring copyright or watermark text that may appear interspersed within the document content.
 
 TABLE HANDLING: For complex tables/RACI matrices, reconstruct role assignments and summarize key security responsibilities. If poorly formatted, use logical interpretation rather than direct quoting.
 
@@ -329,6 +345,9 @@ serve(async (req: Request) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // Apply text sanitization to remove watermarks and special characters
+    text = sanitizeText(text);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
