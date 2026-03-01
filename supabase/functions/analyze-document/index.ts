@@ -290,46 +290,61 @@ serve(async (req: Request) => {
   }
 
   try {
+    console.log('=== ANALYSIS START ===');
     const contentType = req.headers.get("content-type") || "";
     let text: string = "";
     let fileName: string = "";
 
-    if (contentType.includes("application/json")) {
-      // Handle JSON request (existing format)
-      const body = await req.json();
-      text = body.text;
-      fileName = body.fileName;
-    } else if (contentType.includes("multipart/form-data")) {
+    if (contentType.includes("multipart/form-data")) {
       // Handle file upload
+      console.log('Processing multipart/form-data request...');
       const formData = await req.formData();
       const file = formData.get("file") as File;
       fileName = file?.name || "unknown";
       
+      console.log('File received, size:', file.size);
+      console.log('File name:', fileName);
+      console.log('File type:', file.type);
+      
       if (!file) {
+        console.log('ERROR: No file provided in request');
         return new Response(
           JSON.stringify({ error: "No file provided" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
+      console.log('Starting PDF text extraction...');
       const arrayBuffer = await file.arrayBuffer();
       const mimeType = file.type;
 
       // Extract text based on file type
       if (mimeType === "application/pdf") {
         text = await extractTextFromPDF(arrayBuffer);
+        console.log('PDF extraction complete. Text length:', text.length);
       } else if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
         text = await extractTextFromDOCX(arrayBuffer);
+        console.log('DOCX extraction complete. Text length:', text.length);
       } else if (mimeType.startsWith("text/")) {
         // Handle text files
         text = new TextDecoder().decode(arrayBuffer);
+        console.log('Text file extraction complete. Text length:', text.length);
       } else {
+        console.log('ERROR: Unsupported file type:', mimeType);
         return new Response(
           JSON.stringify({ error: `Unsupported file type: ${mimeType}` }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+    } else if (contentType.includes("application/json")) {
+      // Handle JSON request (existing format)
+      console.log('Processing JSON request...');
+      const body = await req.json();
+      text = body.text;
+      fileName = body.fileName;
+      console.log('JSON request received. Text length:', text.length);
     } else {
+      console.log('ERROR: Unsupported content type:', contentType);
       return new Response(
         JSON.stringify({ error: "Unsupported content type" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -337,6 +352,7 @@ serve(async (req: Request) => {
     }
 
     if (!text || typeof text !== "string" || text.trim().length === 0) {
+      console.log('ERROR: No valid text extracted from file');
       return new Response(
         JSON.stringify({ error: "No document text could be extracted from the file" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -344,26 +360,43 @@ serve(async (req: Request) => {
     }
 
     // Apply text sanitization to remove watermarks and special characters
+    console.log('Applying text sanitization...');
     text = sanitizeText(text);
+    console.log('Sanitization complete. Final text length:', text.length);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    if (!LOVABLE_API_KEY) {
+      console.log('ERROR: LOVABLE_API_KEY not configured');
+      throw new Error("LOVABLE_API_KEY is not configured");
+    }
 
+    console.log('Splitting text into chunks...');
     const chunks = splitIntoChunks(text.trim(), MAX_WORDS);
     console.log(`Processing ${chunks.length} chunk(s) for "${fileName}"`);
 
     const results = [];
     for (const [i, chunk] of chunks.entries()) {
+      console.log(`Processing chunk ${i + 1}/${chunks.length}, size: ${chunk.length} chars`);
+      
       // Apply preprocessing for table-aware analysis
       const processedChunk = preprocessTableText(chunk);
+      console.log(`Preprocessing complete for chunk ${i + 1}`);
+      
+      console.log(`Sending request to AI for chunk ${i + 1}...`);
       const result = await analyzeChunk(processedChunk, fileName, i, chunks.length, LOVABLE_API_KEY);
+      console.log(`AI response received for chunk ${i + 1}, score: ${result.score}`);
+      
       results.push(result);
     }
 
+    console.log('All chunks processed successfully');
     // Combine: average score, merge unique findings and evidence
     const avgScore: number = Math.round(results.reduce((sum, r) => sum + Number(r.score), 0) / results.length);
     const allFindings = [...new Set(results.flatMap((r) => r.findings))];
     const allEvidence = [...new Set(results.flatMap((r) => r.evidence || []))];
+
+    console.log('Final results calculated:', { avgScore, findingsCount: allFindings.length, evidenceCount: allEvidence.length });
+    console.log('=== ANALYSIS COMPLETE ===');
 
     return new Response(JSON.stringify({ 
       score: avgScore, 
@@ -373,7 +406,10 @@ serve(async (req: Request) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("analyze-document error:", e);
+    console.error('=== ANALYSIS ERROR ===');
+    console.error('Error details:', e);
+    console.error('Error stack:', e instanceof Error ? e.stack : 'No stack trace');
+    console.error('=== END ERROR ===');
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
