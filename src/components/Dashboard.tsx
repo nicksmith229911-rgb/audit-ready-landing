@@ -202,13 +202,22 @@ const Dashboard = () => {
       const findings: string[] = result.findings ?? [];
       const evidence: string[] = result.evidence ?? []; // Safe array parsing
 
+      // Validation Logic: Handle partial data from complex tables
+      let finalEvidence = evidence;
+      if (evidence.length === 0 || evidence.every(e => !e || e.trim() === '')) {
+        console.warn("No valid evidence found, likely due to complex table structure");
+        // Replace empty evidence with fallback message
+        finalEvidence = ["No direct quote available - complex table structure"];
+        console.log("Parsed AI Analysis Result (with fallback):", { score, findings, evidence: finalEvidence });
+      } else {
+        console.log("Parsed AI Analysis Result:", { score, findings, evidence });
+      }
+
       // Sanity check for score validation
       if (isNaN(score) || score < 0 || score > 100) {
         console.warn("Invalid score received:", result.score, "using default 50");
         // Continue with default score - don't fail the entire process
       }
-
-      console.log("Parsed AI Analysis Result:", { score, findings, evidence }); // Debug log
 
       if (controller.signal.aborted) return;
 
@@ -227,7 +236,7 @@ const Dashboard = () => {
             status: "completed",
             is_safe: isSafe,
             audit_log: { findings },
-            evidence: evidence, // Save to dedicated evidence column
+            evidence: finalEvidence, // Save to dedicated evidence column (with fallback if needed)
           })
           .eq("id", inserted.id);
 

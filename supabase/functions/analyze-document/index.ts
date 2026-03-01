@@ -91,6 +91,8 @@ async function analyzeChunk(
 - findings: 3 bullet points max
 - evidence: 3 short quotes max
 
+If you encounter complex tables or RACI matrices, summarize the key responsibilities rather than trying to quote the table structure directly.
+
 Be evidence-based. If no security controls found, score below 40.
 
 Example:
@@ -128,8 +130,14 @@ Example:
   const data = await response.json();
   const content = data.choices?.[0]?.message?.content ?? "";
 
+  // JSON Defense: Clean AI response to prevent parsing errors
+  const cleaned = content
+    .replace(/```json?\s*/g, "") // Remove code block markers
+    .replace(/```/g, "") // Remove remaining backticks
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
+    .trim();
+
   try {
-    const cleaned = content.replace(/```json?\s*/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     
     // Validate response structure and implement failure scoring
