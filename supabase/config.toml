@@ -2,3 +2,5 @@ project_id = "mqgnoxybutzyagmdektw"
 
 [functions.analyze-document]
 verify_jwt = false
+memory = 512
+timeout = 25

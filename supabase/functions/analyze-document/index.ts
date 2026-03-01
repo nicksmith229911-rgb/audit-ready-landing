@@ -8,11 +8,8 @@ const corsHeaders = {
 
 const MAX_WORDS = 800; // Increased for better table context
 
-// Text Sanitizer: Remove watermarks and special character clusters
+// Text Sanitizer: Remove special character clusters only
 function sanitizeText(text: string): string {
-  // Remove specific watermark phrase
-  text = text.replace(/sans institute 2003\. author retains full rights/gi, '');
-  
   // Remove unusual clusters of special characters from watermark overlaps
   text = text.replace(/[^\w\s\.\,\;\:\!\?\-\|\n\r]{3,}/g, ''); // Remove 3+ consecutive special chars
   text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // Remove control chars except tab/newline
@@ -152,11 +149,11 @@ Example:
 
   const chunkLabel = totalChunks > 1 ? ` (chunk ${chunkIndex + 1}/${totalChunks})` : "";
 
-  // 15-second timeout protection
+  // 20-second timeout protection (synced with 25-second platform limit)
   const timeoutPromise = new Promise<{ score: number; findings: string[]; evidence: string[] }>((_, reject) => {
     setTimeout(() => {
       reject(new Error("Analysis timeout - complex structure detected"));
-    }, 15000); // 15 seconds
+    }, 20000); // 20 seconds
   });
 
   const analysisPromise = fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
