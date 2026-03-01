@@ -116,7 +116,7 @@ async function analyzeChunk(
 ): Promise<{ score: number; findings: string[]; evidence: string[] }> {
   const systemPrompt = `You are an expert SOC2/ISO27001 Auditor. When you see text that appears to be a RACI matrix or table, interpret the relationships between roles and tasks before scoring.
 
-VISION FALLBACK: If the text looks like a table but is poorly formatted, use your logic to reconstruct the assignments before scoring compliance.
+TABLE HANDLING: For complex tables/RACI matrices, reconstruct role assignments and summarize key security responsibilities. If poorly formatted, use logical interpretation rather than direct quoting.
 
 Analyze the document and return JSON with:
 - score: 0-100 (70+ = compliant)
@@ -128,8 +128,6 @@ Table Analysis Rules:
 - Check who is ACCOUNTABLE for security outcomes
 - Note who must be CONSULTED for security decisions
 - Verify who must be INFORMED of security incidents
-
-If you encounter complex tables or RACI matrices, summarize the key security responsibilities rather than trying to quote the table structure directly.
 
 Be evidence-based. If no security controls found, score below 40.
 
@@ -347,7 +345,7 @@ serve(async (req: Request) => {
     }
 
     // Combine: average score, merge unique findings and evidence
-    const avgScore = Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length);
+    const avgScore: number = Math.round(results.reduce((sum, r) => sum + Number(r.score), 0) / results.length);
     const allFindings = [...new Set(results.flatMap((r) => r.findings))];
     const allEvidence = [...new Set(results.flatMap((r) => r.evidence || []))];
 
