@@ -20,38 +20,6 @@ function sanitizeText(text: string): string {
   
   return text.trim();
 }
-function preprocessTableText(text: string): string {
-  // Detect if text contains table-like structures
-  const hasTableMarkers = /\|.*\|/.test(text) || 
-    /^\s*[\|\+\-]+/.test(text) || 
-    /RACI|Responsible|Accountable|Consulted|Informed/i.test(text);
-  
-  if (hasTableMarkers) {
-    console.log("Table structure detected, applying preprocessing...");
-    
-    // Extract and preserve table structure while making it more readable
-    const tableRows = text.split('\n').filter(line => 
-      line.trim() && (line.includes('|') || /[A-Z]/.test(line))
-    );
-    
-    // Add context for AI to understand table relationships
-    const tableContext = `
-TABLE ANALYSIS CONTEXT:
-This document contains a responsibility matrix (likely RACI format).
-Key relationships to identify:
-- Who is RESPONSIBLE for implementation
-- Who is ACCOUNTABLE for outcomes  
-- Who needs to be CONSULTED for input
-- Who must be INFORMED of results
-
-Focus on security-related responsibilities and access controls.
-`;
-    
-    return tableContext + '\n\n' + tableRows.join('\n');
-  }
-  
-  return text;
-}
 
 function splitIntoChunks(text: string, maxWords: number): string[] {
   const words = text.split(/\s+/);
@@ -99,23 +67,44 @@ async function extractTextFromDOCX(arrayBuffer: ArrayBuffer): Promise<string> {
     // Basic DOCX text extraction
     const bytes = new Uint8Array(arrayBuffer);
     const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    
-    // Extract text from DOCX XML structure
-    const textMatches = text.match(/<w:t[^>]*>(.*?)<\/w:t>/g);
-    if (textMatches) {
-      const extractedText = textMatches
-        .map(match => match.replace(/<[^>]*>/g, ""))
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-      return extractedText || "Could not extract text from DOCX file.";
-    }
-    
-    return "Could not extract text from DOCX file. The file may be corrupted.";
+    return sanitizeText(text) || "Could not extract text from DOCX. The file may be corrupted.";
   } catch (error) {
     console.error("DOCX extraction error:", error);
-    return "Failed to extract text from DOCX file. The file may be corrupted or password-protected.";
+    return "Failed to extract text from DOCX. The file may be corrupted.";
   }
+}
+
+function preprocessTableText(text: string): string {
+  // Detect if text contains table-like structures
+  const hasTableMarkers = /\|.*\|/.test(text) || 
+    /^\s*[\|\+\-]+/.test(text) || 
+    /RACI|Responsible|Accountable|Consulted|Informed/i.test(text);
+  
+  if (hasTableMarkers) {
+    console.log("Table structure detected, applying preprocessing...");
+    
+    // Extract and preserve table structure while making it more readable
+    const tableRows = text.split('\n').filter(line => 
+      line.trim() && (line.includes('|') || /[A-Z]/.test(line))
+    );
+    
+    // Add context for AI to understand table relationships
+    const tableContext = `
+TABLE ANALYSIS CONTEXT:
+This document contains a responsibility matrix (likely RACI format).
+Key relationships to identify:
+- Who is RESPONSIBLE for implementation
+- Who is ACCOUNTABLE for outcomes  
+- Who needs to be CONSULTED for input
+- Who must be INFORMED of results
+
+Focus on security-related responsibilities and access controls.
+`;
+    
+    return tableContext + '\n\n' + tableRows.join('\n');
+  }
+  
+  return text;
 }
 
 async function analyzeChunk(
