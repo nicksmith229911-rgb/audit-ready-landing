@@ -189,9 +189,20 @@ const Dashboard = () => {
         throw new Error(errData.error || `Analysis failed (${resp.status})`);
       }
 
-      const result = await resp.json();
+      let result;
+      try {
+        result = await resp.json();
+        console.log("Raw AI Response:", result); // Debug raw response
+      } catch (parseError) {
+        console.error("Failed to parse AI response:", parseError);
+        throw new Error("Invalid response from AI analysis");
+      }
+
       const score: number = result.score ?? 50;
       const findings: string[] = result.findings ?? [];
+      const evidence: string[] = result.evidence ?? [];
+
+      console.log("Parsed AI Analysis Result:", { score, findings, evidence }); // Debug log
 
       if (controller.signal.aborted) return;
 
@@ -206,7 +217,7 @@ const Dashboard = () => {
           compliance_score: score,
           status: "completed",
           is_safe: isSafe,
-          audit_log: { findings },
+          audit_log: { findings, evidence },
         })
         .eq("id", inserted.id);
 
