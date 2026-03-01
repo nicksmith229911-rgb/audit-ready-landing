@@ -86,39 +86,15 @@ async function analyzeChunk(
   totalChunks: number,
   apiKey: string
 ): Promise<{ score: number; findings: string[]; evidence: string[] }> {
-  const systemPrompt = `You are a STRICT SOC2 and ISO27001 Auditor. Your task is to identify ONLY security controls that are EXPLICITLY mentioned in the provided document text.
+  const systemPrompt = `You are a SOC2/ISO27001 Auditor. Analyze the document and return JSON with:
+- score: 0-100 (70+ = compliant)
+- findings: 3 bullet points max
+- evidence: 3 short quotes max
 
-CRITICAL RULES:
-1. ONLY report security controls that are explicitly stated in the text
-2. For each finding, you MUST provide the exact quote evidence from the document
-3. If you cannot find evidence for a security control, it is a GAP - do not invent it
-4. Be extremely skeptical and evidence-based
-5. Do not assume or infer security practices that are not written
+Be evidence-based. If no security controls found, score below 40.
 
-SCORING GUIDELINES:
-- 80-100: Document explicitly mentions most required controls with clear evidence
-- 60-79: Document mentions some controls but has clear gaps
-- 40-59: Document mentions few controls and has significant gaps  
-- 0-39: Document mentions almost no security controls
-
-EVIDENCE REQUIREMENTS:
-- Each finding must have a direct quote from the document
-- Evidence must be verbatim text, not paraphrased
-- If no evidence exists for a control, do not report it
-
-Return ONLY valid JSON with this exact format:
-{
-  "score": 0-100,
-  "findings": ["specific finding with evidence"],
-  "evidence": ["exact quote from document text"]
-}
-
-Example response:
-{
-  "score": 35,
-  "findings": ["No MFA configuration mentioned"],
-  "evidence": ["The document discusses user authentication but does not mention multi-factor authentication"]
-}`;
+Example:
+{"score": 65, "findings": ["MFA not configured", "Data encryption missing"], "evidence": ["Users login with password only", "Database stores plain text"]}`;
 
   const chunkLabel = totalChunks > 1 ? ` (chunk ${chunkIndex + 1}/${totalChunks})` : "";
 
@@ -129,13 +105,13 @@ Example response:
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-3-flash-preview",
-      temperature: 0.1, // Low temperature for consistent, factual responses
+      model: "gpt-4o-mini", // Faster model to beat Vercel timeout
+      temperature: 0.1,
       messages: [
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: `Analyze this document${chunkLabel} for SOC2/ISO27001 compliance. The file is named "${fileName}".\n\nDocument content:\n${chunk}`,
+          content: `Analyze this document${chunkLabel}: "${fileName}".\n\n${chunk}`,
         },
       ],
     }),

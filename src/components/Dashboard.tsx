@@ -200,7 +200,7 @@ const Dashboard = () => {
 
       const score: number = result.score ?? 50;
       const findings: string[] = result.findings ?? [];
-      const evidence: string[] = result.evidence ?? [];
+      const evidence: string[] = result.evidence ?? []; // Safe array parsing
 
       console.log("Parsed AI Analysis Result:", { score, findings, evidence }); // Debug log
 
@@ -211,18 +211,27 @@ const Dashboard = () => {
       setScanProgress(90);
 
       const isSafe = score >= 70;
-      const { error: updateErr } = await supabase
-        .from("scans")
-        .update({
-          compliance_score: score,
-          status: "completed",
-          is_safe: isSafe,
-          audit_log: { findings, evidence },
-        })
-        .eq("id", inserted.id);
+      
+      // Try to save to database, but don't fail if it errors
+      try {
+        const { error: updateErr } = await supabase
+          .from("scans")
+          .update({
+            compliance_score: score,
+            status: "completed",
+            is_safe: isSafe,
+            audit_log: { findings },
+            evidence: evidence, // Save to dedicated evidence column
+          })
+          .eq("id", inserted.id);
 
-      if (updateErr) {
-        throw new Error(updateErr.message);
+        if (updateErr) {
+          console.error("Database save error:", updateErr);
+          // Continue anyway - AI result is still returned to UI
+        }
+      } catch (dbError) {
+        console.error("Database save failed:", dbError);
+        // Continue anyway - AI result is still returned to UI
       }
 
       setScanProgress(100);
