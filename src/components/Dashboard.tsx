@@ -57,6 +57,24 @@ const validateFile = (file: File): string | null => {
   return null;
 };
 
+const fetchAuditResults = async (scanId: string) => {
+  try {
+    const { data } = await supabase
+      .from('audit_results')
+      .select('*')
+      .eq('scan_id', scanId)
+      .single();
+    
+    if (data) {
+      console.log('Audit results fetched:', data);
+      return data;
+    }
+  } catch (error) {
+    console.error('Failed to fetch audit results:', error);
+    return null;
+  }
+};
+
 const Dashboard = () => {
   const { user } = useAuth();
   const [isDragging, setIsDragging] = useState(false);
@@ -159,17 +177,105 @@ const Dashboard = () => {
       setActiveScanId(inserted.id);
       setScans((prev) => [inserted, ...prev]);
 
-      // 2 — Skip text extraction (backend will handle it)
-      setScanStage("analyzing");
+      // 2 — Upload file to Supabase Storage
+      setScanStage("uploading");
       setScanProgress(25);
-
-      if (controller.signal.aborted) return;
-      setScanProgress(40);
-
-      // 3 — Call AI analysis
-      const analyzeUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-document`;
       
-      // Create FormData to send the file
+      if (controller.signal.aborted) return;
+      
+      let storagePath: string;
+      try {
+        // Upload file to storage first
+        const filePath = `${scanRecordId}/${file.name}`;
+        
+        console.log(`[STORAGE FORENSIC] Starting upload with details:`);
+        console.log(`[STORAGE FORENSIC] Scan Record ID: ${scanRecordId}`);
+        console.log(`[STORAGE FORENSIC] File Name: ${file.name}`);
+        console.log(`[STORAGE FORENSIC] File Size: ${file.size} bytes`);
+        console.log(`[STORAGE FORENSIC] File Type: ${file.type}`);
+        console.log(`[STORAGE FORENSIC] Upload Path: ${filePath}`);
+        console.log(`[STORAGE FORENSIC] Content-Type: application/pdf`);
+        console.log(`[STORAGE FORENSIC] Bucket: scans`);
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('scans')
+          .upload(filePath, file, {
+            contentType: 'application/pdf',
+            upsert: true
+          });
+        
+        console.log(`[STORAGE FORENSIC] Upload Success Data:`, uploadData);
+        console.log(`[STORAGE FORENSIC] Upload Error:`, uploadError);
+        
+        if (uploadError) {
+          console.error('[STORAGE FORENSIC] STORAGE UPLOAD ERROR:', uploadError);
+          console.error('[STORAGE FORENSIC] Error Details:', {
+            message: uploadError.message,
+            statusCode: uploadError.statusCode,
+            error: uploadError.error
+          });
+          toast.error('Failed to upload file to storage', { description: uploadError.message });
+          throw new Error(`Storage upload failed: ${uploadError.message}`);
+        }
+        
+        if (!uploadData) {
+          console.error('[STORAGE FORENSIC] SILENT FAIL: No uploadData returned but no error thrown');
+          throw new Error('Storage upload failed: No data returned from upload operation');
+        }
+        
+        console.log(`[STORAGE FORENSIC] Upload verified - Path alignment check:`);
+        console.log(`[STORAGE FORENSIC] Upload path used: "${filePath}"`);
+        console.log(`[STORAGE FORENSIC] Will save to scans.file_url as: "local://${filePath}"`);
+        
+        storagePath = filePath;
+        setScanProgress(40);
+        
+        // Update scan record with storage path
+        const { data: updatedScan, error: updateError } = await supabase
+          .from('scans')
+          .update({
+            file_url: `local://${storagePath}`,
+            storage_path: storagePath,
+            storage_bucket: 'scans'
+          })
+          .eq('id', scanRecordId)
+          .select()
+          .single();
+          
+        if (updateError) {
+          console.error('[STORAGE FORENSIC] SCAN UPDATE ERROR:', updateError);
+          console.error('[STORAGE FORENSIC] Update Error Details:', {
+            message: updateError.message,
+            statusCode: updateError.statusCode,
+            error: updateError.error
+          });
+          toast.error('Failed to update scan record', { description: updateError.message });
+          throw new Error(`Scan update failed: ${updateError.message}`);
+        }
+        
+        console.log(`[STORAGE FORENSIC] Scan record updated successfully:`, updatedScan);
+        console.log(`[STORAGE FORENSIC] Final verification - File should be at: scans/${storagePath}`);
+        
+      } catch (storageErr) {
+        console.error('[STORAGE FORENSIC] STORAGE UPLOAD ERROR:', storageErr);
+        console.error('[STORAGE FORENSIC] Catch block error details:', {
+          message: storageErr instanceof Error ? storageErr.message : 'Unknown error',
+          stack: storageErr instanceof Error ? storageErr.stack : 'No stack trace',
+          name: storageErr instanceof Error ? storageErr.name : 'Unknown error type'
+        });
+        toast.error('Failed to upload file to storage', { description: storageErr instanceof Error ? storageErr.message : 'Unknown error' });
+        throw new Error(`Storage upload failed: ${storageErr instanceof Error ? storageErr.message : 'Unknown error'}`);
+      }
+      
+      // 3 — Call AI analysis
+      setScanStage("analyzing");
+      setScanProgress(50);
+      
+      if (controller.signal.aborted) return;
+      
+      const analyzeUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/audit-engine`;
+      
+      // Create FormData to send file
       const formData = new FormData();
       formData.append("file", file);
       
@@ -183,24 +289,33 @@ const Dashboard = () => {
       });
 
       setScanProgress(75);
-
+      
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
         throw new Error(errData.error || `Analysis failed (${resp.status})`);
       }
-
-      let result;
-      try {
-        result = await resp.json();
-        console.log("Raw AI Response:", result); // Debug raw response
-      } catch (parseError) {
-        console.error("Failed to parse AI response:", parseError);
-        throw new Error("Invalid response from AI analysis");
-      }
-
-      const score: number = Number(result.score) ?? 50;
-      const findings: string[] = result.findings ?? [];
-      const evidence: string[] = result.evidence ?? []; // Safe array parsing
+      
+      // Set up real-time listener for background AI processing
+      const channel = supabase
+        .channel('schema-db-changes')
+        .on('postgres_changes', 
+          { event: 'UPDATE', schema: 'public', table: 'scans', filter: `id=eq.${scanRecordId}` },
+          (payload) => {
+            if (payload.new.status === 'completed') {
+              setScanProgress(100);
+              // Update UI with the results from the background process
+              toast.success("Analysis Complete!");
+              // Optionally fetch the results if needed
+              fetchAuditResults(scanRecordId);
+            }
+          }
+        )
+        .subscribe();
+      
+      let aiResult: any = null;
+      let score: number = 50;
+      let findings: string[] = [];
+      let evidence: string[] = [];
 
       // Validation Logic: Handle partial data from complex tables
       let finalEvidence = evidence;

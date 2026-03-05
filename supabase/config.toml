@@ -1,6 +1,6 @@
 project_id = "mqgnoxybutzyagmdektw"
 
-[functions.analyze-document]
+[functions.audit-engine]
 verify_jwt = false
 
 
