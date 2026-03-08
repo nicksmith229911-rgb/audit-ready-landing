@@ -17,15 +17,14 @@ Deno.serve(async (req: Request) => {
     console.log(`Request method: ${req.method}`);
     console.log(`Request URL: ${req.url}`);
     
-    // Initialize Supabase client
-    // Initialize Supabase client with modern fallbacks
+    // Initialize Supabase client with Service Role Key (Master Key) for RLS bypass
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? "";
-    const supabaseKey = Deno.env.get('SERVICE_ROLE_KEY_CUSTOM') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? "";
-
-    // We removed the 'throw Error' to prevent the boot crash
-    console.log(`[SYSTEM] Connection Check: URL=${!!supabaseUrl}, Key=${!!supabaseKey}`);
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? "";
+    
+    console.log(`[SYSTEM] Using Service Role Key: ${!!serviceRoleKey} (length: ${serviceRoleKey.length})`);
+    console.log(`[SYSTEM] Supabase URL: ${supabaseUrl}`);
+    
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     // Get request body
     const body = await req.json();
@@ -41,32 +40,75 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Step 1: Download PDF from Supabase Storage
+    // Step 1: Download PDF from Supabase Storage with retry logic
     console.log('Step 1: Downloading PDF from storage...');
-    const { data: fileData, error: downloadError } = await supabase.storage
-      .from(bucketName)
-      .download(filePath);
+    console.log(`🔧 [DEBUG] Using bucket: ${bucketName}, path: ${filePath}`);
+    
+    let fileData: any;
+    let downloadError: any;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    // Retry logic for storage download
+    do {
+      if (retryCount > 0) {
+        console.log(`[RETRY] Storage download attempt ${retryCount + 1}/${maxRetries}`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // Exponential backoff
+      }
+      
+      const result = await supabase.storage
+        .from(bucketName)
+        .download(filePath);
+      
+      fileData = result.data;
+      downloadError = result.error;
+      retryCount++;
+      
+      if (downloadError || !fileData) {
+        console.error(`[ERROR] Storage download attempt ${retryCount} failed:`, downloadError);
+      } else {
+        console.log(`[SUCCESS] Storage download succeeded on attempt ${retryCount}`);
+        break;
+      }
+    } while (retryCount < maxRetries && (downloadError || !fileData));
 
     if (downloadError || !fileData) {
-      console.error('Failed to download file:', downloadError);
-      throw new Error(`Failed to download file: ${downloadError?.message}`);
+      console.error(`[CRITICAL] All storage download attempts failed:`, downloadError);
+      console.error(`[DEBUG] Bucket: "${bucketName}", Path: "${filePath}", Key type: ${serviceRoleKey ? 'SERVICE_ROLE' : 'MISSING'}`);
+      throw new Error(`Failed to download file after ${maxRetries} attempts: ${downloadError?.message || 'No data returned'}`);
     }
 
     console.log(`PDF downloaded successfully, size: ${fileData.size} bytes`);
 
     // Step 2: Decode Google Service Account JSON
     console.log('Step 2: Decoding Google Service Account credentials...');
-    const serviceAccountBase64 = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64');
-    if (!serviceAccountBase64) {
+    const cleanedB64 = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64')?.trim().replace(/\s/g, '') || '';
+    if (!cleanedB64) {
       throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON_BASE64 environment variable not set');
     }
 
-    const serviceAccountJson = atob(serviceAccountBase64);
-    const serviceAccount = JSON.parse(serviceAccountJson);
-    console.log(`Service account decoded for project: ${serviceAccount.project_id}`);
+    let serviceAccountJson: string;
+    let serviceAccount: any;
+    
+    try {
+      serviceAccountJson = atob(cleanedB64);
+      console.log(`[JWT] Service account base64 decoded, length: ${serviceAccountJson.length}`);
+      
+      // Strip any hidden whitespace or illegal characters
+      serviceAccountJson = serviceAccountJson.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+      
+      serviceAccount = JSON.parse(serviceAccountJson);
+      console.log(`🚀 [DEBUG] Targeting Project: ${serviceAccount.project_id}`);
+      console.log(`[JWT] Service account parsed successfully for project: ${serviceAccount.project_id}`);
+    } catch (parseError) {
+      console.error(`[JWT] Failed to parse service account JSON:`, parseError);
+      console.error(`[JWT] First 20 characters of base64: ${cleanedB64?.substring(0, 20) || 'N/A'}`);
+      throw new Error(`Invalid service account JSON: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+    }
 
     // Step 3: Get Google Access Token
     console.log('Step 3: Getting Google Access Token...');
+    const jwt = await createJWT(serviceAccount);
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: {
@@ -74,13 +116,15 @@ Deno.serve(async (req: Request) => {
       },
       body: new URLSearchParams({
         grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: createJWT(serviceAccount),
+        assertion: jwt,
       }),
     });
 
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text();
-      console.error('Failed to get access token:', errorText);
+      console.error(`[JWT] CRITICAL: Failed to get access token - Full Google Response:`, errorText);
+      console.error(`[JWT] Response status: ${tokenResponse.status}`);
+      console.error(`[JWT] Response headers:`, Object.fromEntries(tokenResponse.headers.entries()));
       throw new Error(`Failed to get access token: ${tokenResponse.status} - ${errorText}`);
     }
 
@@ -96,6 +140,13 @@ Deno.serve(async (req: Request) => {
       throw new Error('GOOGLE_PROCESSOR_ID environment variable not set');
     }
 
+    // Get location from environment variable with default
+    const location = Deno.env.get('GOOGLE_LOCATION') || 'us';
+
+    console.log(`Sending to Document AI with processor: ${processorId}`);
+    console.log(`🚀 [DEBUG] Using location: ${location} for project: ${serviceAccount.project_id}`);
+    console.log(`🔧 [DEBUG] Processor ID: ${processorId}`);
+
     // Convert file to base64
     const fileBase64 = await fileToBase64(fileData);
     
@@ -107,10 +158,13 @@ Deno.serve(async (req: Request) => {
       },
     };
 
-    console.log(`Sending to Document AI with processor: ${processorId}`);
+    // Use processor ID directly - no splitting
+    const processorEndpoint = processorId.includes('/') 
+      ? processorId 
+      : `projects/${serviceAccount.project_id}/locations/${location}/processors/${processorId}`;
 
     const aiResponse = await fetch(
-      `https://documentai.googleapis.com/v1/projects/${serviceAccount.project_id}/locations/us-central1/processors/${processorId.split('/')[3]}:process`,
+      `https://documentai.googleapis.com/v1/${processorEndpoint}:process`,
       {
         method: 'POST',
         headers: {
@@ -256,7 +310,7 @@ Deno.serve(async (req: Request) => {
 });
 
 // Helper function to create JWT for Google OAuth
-function createJWT(serviceAccount: any): string {
+async function createJWT(serviceAccount: any): Promise<string> {
   const header = {
     alg: 'RS256',
     typ: 'JWT',
@@ -278,11 +332,46 @@ function createJWT(serviceAccount: any): string {
   const encodedHeader = base64UrlEncode(JSON.stringify(header));
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));
 
-  // Note: In a production environment, you'd need to properly sign this with the private key
-  // For this implementation, we're using a simplified approach
-  const signature = 'signature_placeholder'; // This would need proper RSA signing
+  // Clean and prepare private key
+  let privateKey = serviceAccount.private_key;
+  if (!privateKey) {
+    throw new Error('Private key not found in service account');
+  }
+
+  // Remove surrounding quotes if present
+  privateKey = privateKey.replace(/^"(.*)"$/, '$1');
+  // Replace escaped newlines with actual newlines
+  privateKey = privateKey.replace(/\\n/g, '\n');
   
-  return `${encodedHeader}.${encodedPayload}.${signature}`;
+  console.log(`[JWT] Attempting to sign with key length: ${privateKey.length}`);
+
+  // Proper RS256 signing with Web Crypto API - NO PLACEHOLDERS
+  const jwtHeaderPayload = `${encodedHeader}.${encodedPayload}`;
+  
+  // Create real signature using Web Crypto API
+  try {
+    const signatureData = await crypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5',
+      await crypto.subtle.importKey(
+        'pkcs8',
+        new Uint8Array(atob(privateKey.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\s/g, '')).split('').map(c => c.charCodeAt(0))),
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['sign']
+      ),
+      new TextEncoder().encode(jwtHeaderPayload)
+    );
+    
+    const signature = btoa(String.fromCharCode(...new Uint8Array(signatureData)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    
+    console.log(`[JWT] Real RS256 signature created successfully`);
+    return `${jwtHeaderPayload}.${signature}`;
+    
+  } catch (signError) {
+    console.error(`[JWT] CRITICAL: Failed to create RS256 signature:`, signError);
+    throw new Error(`JWT signature creation failed: ${signError instanceof Error ? signError.message : 'Unknown error'}`);
+  }
 }
 
 // Helper function to convert file to base64
