@@ -1,0 +1,6 @@
+aiohttp>=3.8.0
+asyncio
+python-dotenv>=1.0.0
+supabase>=2.0.0
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
