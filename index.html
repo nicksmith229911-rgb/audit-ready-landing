@@ -36,10 +36,28 @@ body {
     margin: auto;
 }
 
+.header-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.logo {
+    width: 50px;
+    height: 50px;
+    flex-shrink: 0;
+}
+
+.header-text {
+    text-align: left;
+}
+
 h1 {
     font-size: 2.5rem;
     font-weight: 800;
-    margin-bottom: 20px;
+    margin-bottom: 5px;
     background: linear-gradient(135deg, #FFFFFF 0%, #C0C5D8 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -48,11 +66,11 @@ h1 {
 }
 
 .status {
-    font-size: 1.1rem;
-    color: #9CA3AF;
-    margin-bottom: 30px;
+    font-size: 0.9rem;
+    color: #94A3B8;
     font-weight: 500;
-    letter-spacing: 0.01em;
+    letter-spacing: 1px;
+    text-transform: uppercase;
 }
 
 .coming-soon {
@@ -136,8 +154,23 @@ footer {
 <body>
     <div class="main-content">
         <div class="container">
-            <h1>Audit-Ready Systems</h1>
-            <div class="status">Enterprise AI Audit Infrastructure</div>
+            <div class="header-container">
+                <svg class="logo" viewBox="0 0 50 50" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <linearGradient id="shieldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#312E81;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#6366F1;stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                    <path d="M25 5 L45 15 L45 25 Q45 35 25 45 Q5 35 5 25 L5 15 Z" fill="url(#shieldGradient)" stroke="none"/>
+                    <path d="M15 20 Q15 15 20 15 L25 15 Q30 15 30 20 L30 25 Q30 30 25 30 L20 30 Q15 30 15 25 Z" fill="none" stroke="white" stroke-width="2"/>
+                    <path d="M20 25 L23 28 L30 21" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <div class="header-text">
+                    <h1>Audit-Ready Systems</h1>
+                    <div class="status">ENTERPRISE AI AUDIT INFRASTRUCTURE</div>
+                </div>
+            </div>
             <div class="coming-soon">Coming Soon</div>
             <div class="contact">
                 Contact: <a href="mailto:admin@auditready.systems">admin@auditready.systems</a>
