@@ -92,12 +92,12 @@ h1 {
 }
 
 footer {
-    display: block;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
     width: 100%;
-    text-align: center;
     margin-top: auto;
-    padding-top: 20px;
-    padding-bottom: 20px;
+    padding: 10px 20px;
     background: transparent;
     border-top: 1px solid rgba(99, 102, 241, 0.1);
     clear: both;
@@ -109,6 +109,7 @@ footer a {
     font-weight: 600;
     margin: 0 10px;
     font-size: 0.9em;
+    white-space: nowrap;
 }
 
 footer p {
@@ -116,6 +117,12 @@ footer p {
     font-size: 0.75em;
     color: #94A3B8;
     margin: 10px 0 0;
+}
+
+@media (max-width: 480px) {
+    footer a {
+        font-size: 0.8rem;
+    }
 }
 </style>
 </head>
