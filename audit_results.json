@@ -10,13 +10,13 @@
       "juror": "claude-sonnet-4-6",
       "status": "error",
       "response_time": 5.957853500003694,
-      "error": "HTTP 404: [{\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/audit-free-zone/locations/us-central1/publishers/anthropic/models/claude-3-5-sonnet-v2` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n]"
+      "error": "HTTP 404: [{\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/audit-ready-systems/locations/us-central1/publishers/anthropic/models/claude-3-5-sonnet-v2` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n]"
     },
     {
       "juror": "gemini-1.5-pro",
       "status": "error",
       "response_time": 4.7791842999868095,
-      "error": "HTTP 404: [{\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/audit-free-zone/locations/us-central1/publishers/google/models/gemini-1.5-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n]"
+      "error": "HTTP 404: [{\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"Publisher Model `projects/audit-ready-systems/locations/us-central1/publishers/google/models/gemini-1.5-pro` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n]"
     },
     {
       "juror": "llama-4-maverick-17b-128e-instruct-maas",
