@@ -34,10 +34,10 @@ if os.path.exists(creds_path):
             print(f"🔑 Project ID: {project_id}")
             
             # Verify correct project
-            if project_id == 'audit-free-zone':
-                print(f"✅ Project ID matches expected: audit-free-zone")
+            if project_id == 'audit-ready-systems':
+                print(f"✅ Project ID matches expected: audit-ready-systems")
             else:
-                print(f"❌ Project ID mismatch. Expected: audit-free-zone, Found: {project_id}")
+                print(f"❌ Project ID mismatch. Expected: audit-ready-systems, Found: {project_id}")
     except Exception as e:
         print(f"❌ Error reading google-creds.json: {e}")
 else:

@@ -302,8 +302,8 @@ class TripleAuditOrchestrator:
                     print(f"🔧 [VERTEX] Service account loaded: {project_id}")
                     
                     # Verify project ID
-                    if project_id != 'audit-free-zone':
-                        print(f"❌ [VERTEX] Project ID mismatch. Expected: audit-free-zone, Found: {project_id}")
+                    if project_id != 'audit-ready-systems':
+                        print(f"❌ [VERTEX] Project ID mismatch. Expected: audit-ready-systems, Found: {project_id}")
                         return []
                     else:
                         print(f"✅ [VERTEX] Project ID verified: {project_id}")
@@ -338,7 +338,7 @@ class TripleAuditOrchestrator:
         jurors.append(AIJuror(
             "claude-sonnet-4-6",
             # 2026 fix: Claude 4.6 uses 'rawPredict' endpoint for direct Anthropic compatibility
-            "https://us-east5-aiplatform.googleapis.com/v1/projects/audit-free-zone/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-6:rawPredict",
+            "https://us-east5-aiplatform.googleapis.com/v1/projects/audit-ready-systems/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-6:rawPredict",
             claude_headers
         ))
         
@@ -350,7 +350,7 @@ class TripleAuditOrchestrator:
         }
         jurors.append(AIJuror(
             "gemini-2.5-flash",
-            "https://us-east1-aiplatform.googleapis.com/v1/projects/audit-free-zone/locations/us-east1/publishers/google/models/gemini-2.5-flash:streamGenerateContent",
+            "https://us-east1-aiplatform.googleapis.com/v1/projects/audit-ready-systems/locations/us-east1/publishers/google/models/gemini-2.5-flash:streamGenerateContent",
             gemini_headers
         ))
         
@@ -363,7 +363,7 @@ class TripleAuditOrchestrator:
         jurors.append(AIJuror(
             "llama-4-maverick",
             # 2026 GA MaaS Endpoint (OpenAPI Compatible)
-            "https://us-east5-aiplatform.googleapis.com/v1/projects/audit-free-zone/locations/us-east5/endpoints/openapi/chat/completions",
+            "https://us-east5-aiplatform.googleapis.com/v1/projects/audit-ready-systems/locations/us-east5/endpoints/openapi/chat/completions",
             llama_headers
         ))
         
