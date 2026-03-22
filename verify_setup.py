@@ -22,7 +22,7 @@ print("🚀 Vertex AI Triple Audit Setup Verification")
 print("=" * 50)
 
 # Check Google credentials
-creds_path = os.path.join(os.path.dirname(__file__), 'google-creds.json')
+creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', os.path.join(os.path.dirname(__file__), 'service-account.json'))
 project_id = None
 
 if os.path.exists(creds_path):

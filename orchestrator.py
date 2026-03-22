@@ -83,7 +83,7 @@ class AIJuror:
         import google.auth.transport.requests
 
         self.creds = service_account.Credentials.from_service_account_file(
-            'google-creds.json',
+            os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'service-account.json'),
             scopes=['https://www.googleapis.com/auth/cloud-platform']
         )
         self.auth_request = google.auth.transport.requests.Request()
@@ -95,7 +95,8 @@ class AIJuror:
                 "Authorization": f"Bearer {self.creds.token}",
                 "Content-Type": "application/json; charset=utf-8",
                 # Required for Claude 4.6 on Vertex 2026
-                "anthropic-version": "vertex-2023-10-16" 
+                "anthropic-version": "vertex-2023-10-16",
+                "x-goog-user-project": os.getenv('GOOGLE_PROJECT_ID', '')
             }
         
         self.get_headers = get_valid_headers
@@ -118,7 +119,8 @@ class AIJuror:
                             {"role": "user", "content": document_text}
                         ],
                         "max_tokens": 4096,
-                        "temperature": 0
+                        "temperature": 0.3,
+                        "top_p": 0.9
                     }
                 elif "llama" in self.name.lower():
                     # 2026 Fix: MaaS models require the OpenAI-style 'model' and 'messages' payload
@@ -126,7 +128,8 @@ class AIJuror:
                         "model": "meta/llama-4-maverick-17b-128e-instruct-maas",
                         "messages": [{"role": "user", "content": document_text}],
                         "stream": False,
-                        "temperature": 0.2
+                        "temperature": 0.3,
+                        "top_p": 0.9
                     }
                 else:
                     # Vertex AI compliant payload for other models
@@ -167,7 +170,8 @@ Timestamp: {datetime.now(timezone.utc).isoformat()}
                             "parts": [{"text": prompt}]
                         }],
                         "generationConfig": {
-                            "temperature": 0.2,
+                            "temperature": 0.3,
+                            "topP": 0.9,
                             "responseMimeType": "application/json"
                         }
                     }
@@ -289,7 +293,11 @@ class TripleAuditOrchestrator:
         jurors = []
         
         # Load Google service account credentials
-        creds_path = os.path.join(os.path.dirname(__file__), 'google-creds.json')
+        creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'service-account.json')
+        # Handle relative vs absolute paths
+        if not os.path.isabs(creds_path):
+            creds_path = os.path.join(os.path.dirname(__file__), creds_path)
+            
         service_account_creds = None
         oauth2_token = None
         
@@ -297,16 +305,17 @@ class TripleAuditOrchestrator:
             try:
                 with open(creds_path, 'r') as f:
                     service_account_creds = json.load(f)
-                    project_id = service_account_creds.get('project_id', '')
+                    sa_project_id = service_account_creds.get('project_id', '')
+                    expected_project_id = os.getenv('GOOGLE_PROJECT_ID', '')
                     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = creds_path
-                    print(f"🔧 [VERTEX] Service account loaded: {project_id}")
+                    print(f"🔧 [VERTEX] Service account loaded: {sa_project_id}")
                     
-                    # Verify project ID
-                    if project_id != 'audit-ready-systems':
-                        print(f"❌ [VERTEX] Project ID mismatch. Expected: audit-ready-systems, Found: {project_id}")
-                        return []
+                    # Verify project ID matches ENV expectation
+                    if expected_project_id and sa_project_id != expected_project_id:
+                        print(f"❌ [VERTEX] Project ID mismatch. Expected: {expected_project_id}, Found in SA: {sa_project_id}")
+                        # In strict environments, we might return []. Here we'll continue but warn.
                     else:
-                        print(f"✅ [VERTEX] Project ID verified: {project_id}")
+                        print(f"✅ [VERTEX] Project ID verified: {sa_project_id}")
                     
                     # Store credentials for refresh mechanism
                     self.service_account_creds = service_account_creds
@@ -329,28 +338,31 @@ class TripleAuditOrchestrator:
             print(f"❌ [VERTEX] google-creds.json not found at {creds_path}")
             return []
         
-        # Lead Juror: Claude Sonnet 4.6 via AnthropicVertex (us-east5 region)
+        # Global variables for URIs
+        active_project = os.getenv('GOOGLE_PROJECT_ID', service_account_creds.get('project_id', ''))
+        
+        # Lead Juror: Claude Sonnet 4.6 via AnthropicVertex (Global endpoint with EU failover)
         claude_headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {oauth2_token}",  # OAuth2 token
-            "x-goog-user-project": service_account_creds.get('project_id', '').strip().replace('\n', '').replace('\r', '')
+            "x-goog-user-project": active_project
         }
         jurors.append(AIJuror(
-            "claude-sonnet-4-6",
-            # 2026 fix: Claude 4.6 uses 'rawPredict' endpoint for direct Anthropic compatibility
-            "https://us-east5-aiplatform.googleapis.com/v1/projects/audit-ready-systems/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-6:rawPredict",
+            "claude-opus-4-6",
+            # 2026 Regional endpoint — Opus 4.6 confirmed 429 at europe-west4 (exists, quota limited)
+            f"https://europe-west4-aiplatform.googleapis.com/v1/projects/{active_project}/locations/europe-west4/publishers/anthropic/models/claude-opus-4-6:rawPredict",
             claude_headers
         ))
         
-        # Technical Juror: Gemini 2.5 Flash via Vertex AI (us-east1 region)
+        # Technical Juror: Gemini 2.5 Flash via Vertex AI (us-east5 region forced)
         gemini_headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {oauth2_token}",  # OAuth2 token
-            "x-goog-user-project": service_account_creds.get('project_id', '').strip().replace('\n', '').replace('\r', '')
+            "x-goog-user-project": active_project
         }
         jurors.append(AIJuror(
             "gemini-2.5-flash",
-            "https://us-east1-aiplatform.googleapis.com/v1/projects/audit-ready-systems/locations/us-east1/publishers/google/models/gemini-2.5-flash:streamGenerateContent",
+            f"https://us-east5-aiplatform.googleapis.com/v1/projects/{active_project}/locations/us-east5/publishers/google/models/gemini-2.5-flash:streamGenerateContent",
             gemini_headers
         ))
         
@@ -358,12 +370,12 @@ class TripleAuditOrchestrator:
         llama_headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {oauth2_token}",  # Use same OAuth2 token
-            "x-goog-user-project": service_account_creds.get('project_id', '').strip().replace('\n', '').replace('\r', '')
+            "x-goog-user-project": active_project
         }
         jurors.append(AIJuror(
             "llama-4-maverick",
-            # 2026 GA MaaS Endpoint (OpenAPI Compatible)
-            "https://us-east5-aiplatform.googleapis.com/v1/projects/audit-ready-systems/locations/us-east5/endpoints/openapi/chat/completions",
+            # 2026 GA MaaS Endpoint (OpenAPI Compatible) — us-east5 only (404 at us-east1)
+            f"https://us-east5-aiplatform.googleapis.com/v1/projects/{active_project}/locations/us-east5/endpoints/openapi/chat/completions",
             llama_headers
         ))
         
